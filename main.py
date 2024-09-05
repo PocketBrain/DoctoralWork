@@ -5,10 +5,9 @@ import g4f
 # Функция для получения ответа от модели GPT-3.5-turbo
 def get_answer(request: str) -> str:
     response = g4f.ChatCompletion.create(
-        model=g4f.models.default,
+        model="gpt-3.5-turbo",
         messages=[ {"role": "system", "content": "Ты – качественный и полезный ассистент, который отвечает только на русском языке."},
             {"role": "user", "content": request}],
-        provider = g4f.Provider.Bing
     )
     return response
 
