@@ -1,32 +1,84 @@
 import streamlit as st
+import json
+import os
 from streamlit_option_menu import option_menu
 import g4f
+
+# Путь к файлу для хранения данных пользователей
+USER_DATA_FILE = "user_data.json"
+
+# Функция для загрузки данных пользователей
+def load_user_data():
+    if os.path.exists(USER_DATA_FILE):
+        with open(USER_DATA_FILE, 'r') as file:
+            return json.load(file)
+    return {}
+
+# Функция для сохранения данных пользователей
+def save_user_data(data):
+    with open(USER_DATA_FILE, 'w') as file:
+        json.dump(data, file, indent=4)
+
+# Проверка пользователя
+def authenticate(username, password, user_data):
+    return username in user_data and user_data[username]["password"] == password
+
+# Страница авторизации
+def login_page():
+    st.title("Авторизация")
+    username = st.text_input("Имя пользователя")
+    password = st.text_input("Пароль", type="password")
+    login_button = st.button("Войти")
+
+    user_data = load_user_data()
+
+    if login_button:
+        if authenticate(username, password, user_data):
+            st.session_state["username"] = username
+            st.success(f"Добро пожаловать, {username}!")
+        else:
+            st.error("Неправильное имя пользователя или пароль.")
+
+# Страница регистрации
+def register_page():
+    st.title("Регистрация")
+    username = st.text_input("Имя пользователя")
+    password = st.text_input("Пароль", type="password")
+    register_button = st.button("Зарегистрироваться")
+
+    if register_button:
+        user_data = load_user_data()
+        if username in user_data:
+            st.error("Такое имя пользователя уже существует.")
+        else:
+            user_data[username] = {"password": password, "projects": []}
+            save_user_data(user_data)
+            st.success("Регистрация успешна. Теперь вы можете войти.")
 
 # Функция для получения ответа от модели GPT-3.5-turbo
 def get_answer(request: str) -> str:
     response = g4f.ChatCompletion.create(
         model=g4f.models.default,
-        messages=[ {"role": "system", "content": "Ты – качественный и полезный ассистент, который отвечает только на русском языке."},
-            {"role": "user", "content": request}],
+        messages=[{"role": "system", "content": "Ты – качественный и полезный ассистент, который отвечает только на русском языке."},
+                  {"role": "user", "content": request}],
     )
     return response
 
-# Функция для первой страницы
-def input_page():
-    st.title("Ввод данных о проекте и компетенциях")
+# Личный кабинет пользователя
+def user_dashboard(username):
+    st.title(f"Личный кабинет: {username}")
+
+    user_data = load_user_data()
 
     with st.form("project_form"):
-        # Поля ввода для проекта
         st.header("Информация о проекте")
         project_name = st.text_input("Название проекта")
         project_description = st.text_area("Описание проекта")
 
         st.header("Информация о людях")
 
-        # Поле для ввода количества людей
         num_people = st.number_input("Количество людей", min_value=1, max_value=10, value=1, step=1, key="num_people")
 
-        # Создание полей ввода для каждого человека в зависимости от количества людей
         people_data = []
         for i in range(num_people):
             st.subheader(f"Человек {i + 1}")
@@ -34,60 +86,61 @@ def input_page():
             role = st.text_input(f"Роль человека {i + 1}", key=f"role_{i}")
             skills = st.text_area(f"Компетенции человека {i + 1}", key=f"skills_{i}")
             moral = st.text_area(f"Личные качества человека {i + 1}", key=f"moral{i}")
-            people_data.append({"name": name, "role": role, "skills": skills, "moral" : moral})
+            people_data.append({"name": name, "role": role, "skills": skills, "moral": moral})
 
         request = st.text_area("Вставьте весь текст сюда", height=150)
 
-        submitted = st.form_submit_button("Сформировать строку")
-        system_prompt = "Отвечай только на русском языке. Ты сервис для формирования компетентного профиля на основе Компетенций пользователя, на вход тебе поступает название проекта, его описание, а также список людей с из компетенция, твоя задача, понять кто именно из людей нужны для реализации проекта, и обосновать это. Отвечай только на русском языке.  Отвечай только на русском языке.Данные: "
+        submitted = st.form_submit_button("Сохранить проект")
         if submitted:
-            project_info = f"Название проекта: {project_name}. Описание проекта: {project_description}.\n"
-            people_info = " ".join(
-                [f"Человек {i + 1}: Имя: {person['name']}, Роль: {person['role']}, Компетенции: {person['skills']}, Моральные качества: {person['moral']}." for
-                 i, person in enumerate(people_data)])
-            full_info = system_prompt + f"{project_info} {people_info} {request}"
-            st.session_state["full_info"] = full_info
+            user_data[username]["projects"].append({
+                "project_name": project_name,
+                "project_description": project_description,
+                "people_data": people_data,
+                "request": request
+            })
+            save_user_data(user_data)
+            st.success("Проект сохранен!")
 
-            print(full_info)
-            answer = get_answer(full_info)
-            print(answer)
-            st.session_state["answer"] = answer
-            st.success("Строка сформирована! Перейдите на страницу 'Результат' для просмотра.")
-
-# Функция для второй страницы
+# Страница с результатом для всех пользователей
 def result_page():
     st.title("Результат")
 
-    if "full_info" in st.session_state:
-        st.write("Сформированная строка для нейросети:")
-        st.text_area("Результат", st.session_state["full_info"], height=200)
+    user_data = load_user_data()
+    all_projects = []
+    
+    for user, details in user_data.items():
+        for project in details["projects"]:
+            project_info = f"Название проекта: {project['project_name']}. Описание проекта: {project['project_description']}.\n"
+            people_info = " ".join([f"Человек {i + 1}: Имя: {person['name']}, Роль: {person['role']}, Компетенции: {person['skills']}, Моральные качества: {person['moral']}." for i, person in enumerate(project['people_data'])])
+            all_projects.append(project_info + people_info + project['request'])
 
-        if "answer" in st.session_state:
-            st.write("Ответ модели:")
-            print(st.session_state["answer"])
-            st.text_area("Ответ", st.session_state["answer"], height=100)
+    if all_projects:
+        full_info = " ".join(all_projects)
+        answer = get_answer(full_info)
+        st.write("Ответ модели:")
+        st.text_area("Ответ", answer, height=200)
     else:
-        st.warning("Сначала перейдите на страницу 'Ввод данных' и заполните форму.")
+        st.warning("Нет данных для обработки.")
 
 # Настройка страниц
 st.set_page_config(page_title="Проект и Компетенции", layout="wide")
 st.sidebar.title("Навигация")
 page = option_menu(
-    menu_title="Меню",  # required
-    options=["Ввод данных", "Результат"],  # required
-    icons=["pencil-fill", "check-circle-fill"],  # optional
-    menu_icon="cast",  # optional
-    default_index=0,  # optional
-    orientation="vertical",
-    styles={
-        "container": {"padding": "0!important", "background-color": "#f0f0f0"},
-        "icon": {"color": "orange", "font-size": "25px"},
-        "nav-link": {"font-size": "16px", "text-align": "left", "margin": "0px", "--hover-color": "#eee"},
-        "nav-link-selected": {"background-color": "#2C3E50"},
-    }
+    menu_title="Меню",
+    options=["Авторизация", "Регистрация", "Личный кабинет", "Результат"],
+    icons=["person-fill", "person-plus-fill", "house-fill", "check-circle-fill"],
+    default_index=0,
+    orientation="vertical"
 )
 
-if page == "Ввод данных":
-    input_page()
+if page == "Авторизация":
+    login_page()
+elif page == "Регистрация":
+    register_page()
+elif page == "Личный кабинет":
+    if "username" in st.session_state:
+        user_dashboard(st.session_state["username"])
+    else:
+        st.warning("Сначала авторизуйтесь.")
 elif page == "Результат":
     result_page()
